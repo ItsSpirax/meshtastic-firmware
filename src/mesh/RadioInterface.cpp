@@ -1284,6 +1284,17 @@ bool RadioInterface::validateConfigLora(const meshtastic_Config_LoRaConfig &lora
     return checkOrClampConfigLora(copy, false);
 }
 
+// A variant may define LORA_POWER_LIMIT_OVERRIDE (dBm) to raise the regional ceiling for a tx_power set above it.
+// A tx_power of 0 still resolves to the regional limit.
+static inline uint8_t effectivePowerLimit(uint8_t regionLimit)
+{
+#ifdef LORA_POWER_LIMIT_OVERRIDE
+    if (regionLimit && regionLimit < LORA_POWER_LIMIT_OVERRIDE)
+        return LORA_POWER_LIMIT_OVERRIDE;
+#endif
+    return regionLimit;
+}
+
 void RadioInterface::clampConfigLora(meshtastic_Config_LoRaConfig &loraConfig)
 {
     checkOrClampConfigLora(loraConfig, true);
@@ -1369,8 +1380,10 @@ void RadioInterface::applyModemConfig()
 
     power = loraConfig.tx_power;
 
-    if ((power == 0) || ((power > newRegion->powerLimit) && !devicestate.owner.is_licensed))
+    if (power == 0)
         power = newRegion->powerLimit;
+    else if ((power > effectivePowerLimit(newRegion->powerLimit)) && !devicestate.owner.is_licensed)
+        power = effectivePowerLimit(newRegion->powerLimit);
 
     if (power == 0)
         power = 17; // Default to this power level if we don't have a valid regional power limit (powerLimit of newRegion defaults
@@ -1498,7 +1511,7 @@ void RadioInterface::limitPower(int8_t loraMaxPower)
     uint8_t maxPower = 255;       // No limit
 
     if (myRegion->powerLimit)
-        maxPower = myRegion->powerLimit;
+        maxPower = effectivePowerLimit(myRegion->powerLimit);
 
     if ((power > maxPower) && !devicestate.owner.is_licensed) {
         LOG_INFO("Lower Tx power: regulatory limits");

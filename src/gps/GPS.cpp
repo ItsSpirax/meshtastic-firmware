@@ -2139,6 +2139,10 @@ std::unique_ptr<GPS> GPS::createGps()
     if (!portduino_config.gpsd_host.empty())
         new_gps->gnssModel = GNSS_MODEL_GENERIC_NMEA;
 #endif
+#ifdef GPS_GENERIC_NMEA
+    // A receiver wired RX-only cannot answer the chip probe, so take its NMEA stream as-is.
+    new_gps->gnssModel = GNSS_MODEL_GENERIC_NMEA;
+#endif
 
     GpioVirtPin *virtPin = new GpioVirtPin();
     new_gps->enablePin = virtPin; // Always at least populate a virtual pin

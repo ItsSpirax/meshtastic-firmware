@@ -93,6 +93,7 @@ class AmbientLightingThread : public concurrency::OSThread
 #endif
                 if (!moduleConfig.ambient_lighting.led_state) {
                     LOG_DEBUG("AmbientLighting disabled: led_state OFF");
+                    setLightingOff(nullptr); // a latching LED keeps its last colour across a reboot
                     disable();
                     return;
                 }
@@ -107,6 +108,12 @@ class AmbientLightingThread : public concurrency::OSThread
       protected:
         int32_t runOnce() override
         {
+#ifdef HAS_NEOPIXEL
+            // Switched on with the colour set to black: animate a rainbow instead of showing nothing.
+            if (moduleConfig.ambient_lighting.led_state && !moduleConfig.ambient_lighting.red &&
+                !moduleConfig.ambient_lighting.green && !moduleConfig.ambient_lighting.blue)
+                return stepRainbow();
+#endif
 #ifdef HAS_RGB_LED
 #if defined(HAS_NCP5623) || defined(HAS_LP5562)
             if ((_type == ScanI2C::NCP5623 || _type == ScanI2C::LP5562) && moduleConfig.ambient_lighting.led_state) {
@@ -127,6 +134,39 @@ class AmbientLightingThread : public concurrency::OSThread
 
       private:
         ScanI2C::DeviceType _type = ScanI2C::DeviceType::NONE;
+#if defined(HAS_NEOPIXEL) && !defined(NEOPIXEL_RAINBOW_SNAKE)
+        uint16_t rainbowHue = 0;
+
+        // One step of a colour cycle; a full trip round the colour wheel takes about 10 seconds.
+        int32_t stepRainbow()
+        {
+            pixels.setBrightness(moduleConfig.ambient_lighting.current);
+            pixels.rainbow(rainbowHue);
+            pixels.show();
+            rainbowHue += 256;
+            return 40;
+        }
+#endif
+
+#ifdef NEOPIXEL_RAINBOW_SNAKE
+        uint8_t snakeHead = 0;
+
+        // One step of a rainbow chase along the strip: a full-colour head with two dimmer pixels behind it.
+        int32_t stepRainbow()
+        {
+            static const uint8_t rainbow[6][3] = {{255, 0, 0},   {255, 255, 0}, {0, 255, 0},
+                                                  {0, 255, 255}, {0, 0, 255},   {255, 0, 255}};
+            pixels.setBrightness(moduleConfig.ambient_lighting.current);
+            pixels.clear();
+            for (uint8_t tail = 0; tail < 3 && tail <= snakeHead; tail++) {
+                const uint8_t *c = rainbow[(snakeHead - tail) % 6];
+                pixels.setPixelColor(snakeHead - tail, pixels.Color(c[0] >> tail, c[1] >> tail, c[2] >> tail));
+            }
+            pixels.show();
+            snakeHead = (snakeHead + 1) % NEOPIXEL_COUNT;
+            return snakeHead == 0 ? 280 : 80; // short pause after each full pass
+        }
+#endif
 
         // Turn RGB lighting off, is used in junction to shutdown()
         int setLightingOff(void *unused)
@@ -169,6 +209,23 @@ class AmbientLightingThread : public concurrency::OSThread
             return 0;
         }
 
+      public:
+        // Apply a changed ambient lighting config straight away instead of waiting for a reboot.
+        void applyConfig()
+        {
+#if defined(HAS_NCP5623) || defined(HAS_LP5562)
+            if (_type == ScanI2C::DeviceType::NONE)
+                return;
+#endif
+            if (moduleConfig.ambient_lighting.led_state) {
+                enabled = true;
+                setIntervalFromNow(0);
+            } else {
+                setLightingOff(nullptr);
+                disable();
+            }
+        }
+
       protected:
         void setLighting(float current, uint8_t red, uint8_t green, uint8_t blue)
         {
@@ -187,6 +244,7 @@ class AmbientLightingThread : public concurrency::OSThread
             LOG_DEBUG("Init LP5562 Ambient light w/ current=%f, red=%d, green=%d, blue=%d", current, red, green, blue);
 #endif
 #ifdef HAS_NEOPIXEL
+            pixels.setBrightness(current);
             pixels.fill(pixels.Color(red, green, blue), 0, NEOPIXEL_COUNT);
 
 // RadioMaster Bandit has addressable LED at the two buttons

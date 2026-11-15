@@ -12,6 +12,10 @@
 #include "gps/RTC.h"
 #include "input/InputBroker.h"
 #include "meshUtils.h"
+#ifdef HAS_RGB_LED
+#include "AmbientLightingThread.h"
+extern AmbientLightingThread *ambientLightingThread;
+#endif
 #include <ErriezCRC32.h>
 #include <FSCommon.h>
 #include <Throttle.h>
@@ -1355,6 +1359,12 @@ bool AdminModule::handleSetModuleConfig(const meshtastic_ModuleConfig &c)
         LOG_INFO("Set module config: Ambient Lighting");
         moduleConfig.has_ambient_lighting = true;
         moduleConfig.ambient_lighting = c.payload_variant.ambient_lighting;
+#ifdef HAS_RGB_LED
+        if (ambientLightingThread) {
+            ambientLightingThread->applyConfig();
+            shouldReboot = false;
+        }
+#endif
         break;
     case meshtastic_ModuleConfig_paxcounter_tag:
         LOG_INFO("Set module config: Paxcounter");

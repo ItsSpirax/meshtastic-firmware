@@ -1147,7 +1147,11 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     config.lora.sx126x_rx_boosted_gain = true;
     config.lora.tx_enabled =
         true; // FIXME: maybe false in the future, and setting region to enable it. (unset region forces it off)
+#ifdef USERPREFS_LORACONFIG_OVERRIDE_DUTY_CYCLE
+    config.lora.override_duty_cycle = USERPREFS_LORACONFIG_OVERRIDE_DUTY_CYCLE;
+#else
     config.lora.override_duty_cycle = false;
+#endif
     config.lora.config_ok_to_mqtt = false;
 #if HAS_LORA_FEM
     config.lora.fem_lna_mode = meshtastic_Config_LoRaConfig_FEM_LNA_Mode_ENABLED;
@@ -1282,7 +1286,15 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
         // Never log the key bytes: debug logs get pasted into public bug reports.
         LOG_DEBUG("Restored preserved private key");
     } else {
+#ifdef USERPREFS_CONFIG_SECURITY_PRIVATE_KEY
+        // The public key and node number are derived from this at boot, so the node keeps one identity across erases.
+        static const uint8_t userprefsPrivateKey[] = USERPREFS_CONFIG_SECURITY_PRIVATE_KEY;
+        static_assert(sizeof(userprefsPrivateKey) == 32, "USERPREFS_CONFIG_SECURITY_PRIVATE_KEY must be 32 bytes");
+        memcpy(config.security.private_key.bytes, userprefsPrivateKey, sizeof(userprefsPrivateKey));
+        config.security.private_key.size = sizeof(userprefsPrivateKey);
+#else
         config.security.private_key.size = 0;
+#endif
     }
     config.security.public_key.size = 0;
 
@@ -1329,6 +1341,9 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
     // default to bluetooth capability of platform as default
     config.bluetooth.enabled = true;
 #endif
+#ifdef USERPREFS_CONFIG_BLUETOOTH_ENABLED
+    config.bluetooth.enabled = USERPREFS_CONFIG_BLUETOOTH_ENABLED;
+#endif
 
     config.bluetooth.fixed_pin = defaultBLEPin;
 
@@ -1367,6 +1382,9 @@ void NodeDB::installDefaultConfig(bool preserveKey = false)
         (meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE | meshtastic_Config_PositionConfig_PositionFlags_ALTITUDE_MSL |
          meshtastic_Config_PositionConfig_PositionFlags_SPEED | meshtastic_Config_PositionConfig_PositionFlags_HEADING |
          meshtastic_Config_PositionConfig_PositionFlags_DOP | meshtastic_Config_PositionConfig_PositionFlags_SATINVIEW);
+#ifdef USERPREFS_CONFIG_POSITION_FLAGS
+    config.position.position_flags = USERPREFS_CONFIG_POSITION_FLAGS;
+#endif
 
 // Set default value for 'Mesh via UDP'
 #if HAS_UDP_MULTICAST
@@ -1473,6 +1491,9 @@ void NodeDB::initConfigIntervals()
     config.power.wait_bluetooth_secs = default_wait_bluetooth_secs;
 
     config.display.screen_on_secs = default_screen_on_secs;
+#ifdef USERPREFS_CONFIG_DISPLAY_SCREEN_ON_SECS
+    config.display.screen_on_secs = USERPREFS_CONFIG_DISPLAY_SCREEN_ON_SECS;
+#endif
 
 #if defined(USE_POWERSAVE)
     config.power.is_power_saving = true;
@@ -1534,7 +1555,8 @@ void NodeDB::installDefaultModuleConfig()
     LOG_INFO("Install default ModuleConfig");
     memset(&moduleConfig, 0, sizeof(meshtastic_LocalModuleConfig));
 
-    moduleConfig.version = DEVICESTATE_CUR_VER;
+    // Fresh defaults are already opt-in; stamping the watermark keeps the opt-in migration from clearing userPrefs.
+    moduleConfig.version = POSITION_TELEMETRY_OPTIN_VER;
     moduleConfig.has_mqtt = true;
     moduleConfig.has_range_test = true;
     moduleConfig.has_serial = true;
@@ -1666,6 +1688,26 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.mqtt.tls_enabled = default_mqtt_tls_enabled;
 #endif
 
+#ifdef USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED
+    moduleConfig.mqtt.proxy_to_client_enabled = USERPREFS_MQTT_PROXY_TO_CLIENT_ENABLED;
+#endif
+
+#ifdef USERPREFS_MQTT_MAP_REPORT_POSITION_PRECISION
+    moduleConfig.mqtt.map_reporting_enabled = true;
+    moduleConfig.mqtt.has_map_report_settings = true;
+    moduleConfig.mqtt.map_report_settings.should_report_location = true;
+    moduleConfig.mqtt.map_report_settings.position_precision = USERPREFS_MQTT_MAP_REPORT_POSITION_PRECISION;
+#endif
+
+#ifdef USERPREFS_RANGE_TEST_SENDER
+    moduleConfig.range_test.sender = USERPREFS_RANGE_TEST_SENDER;
+#endif
+
+#ifdef USERPREFS_STATUS_MESSAGE
+    moduleConfig.has_statusmessage = true;
+    strncpy(moduleConfig.statusmessage.node_status, USERPREFS_STATUS_MESSAGE, sizeof(moduleConfig.statusmessage.node_status) - 1);
+#endif
+
     moduleConfig.has_neighbor_info = true;
     moduleConfig.neighbor_info.enabled = false;
 
@@ -1677,11 +1719,19 @@ void NodeDB::installDefaultModuleConfig()
     moduleConfig.detection_sensor.minimum_broadcast_secs = 45;
 
     moduleConfig.has_ambient_lighting = true;
+#ifdef USERPREFS_AMBIENT_LIGHTING_RED
+    moduleConfig.ambient_lighting.led_state = true;
+    moduleConfig.ambient_lighting.current = USERPREFS_AMBIENT_LIGHTING_CURRENT;
+    moduleConfig.ambient_lighting.red = USERPREFS_AMBIENT_LIGHTING_RED;
+    moduleConfig.ambient_lighting.green = USERPREFS_AMBIENT_LIGHTING_GREEN;
+    moduleConfig.ambient_lighting.blue = USERPREFS_AMBIENT_LIGHTING_BLUE;
+#else
     moduleConfig.ambient_lighting.current = 10;
     // Default to a color based on our node number
     moduleConfig.ambient_lighting.red = (myNodeInfo.my_node_num & 0xFF0000) >> 16;
     moduleConfig.ambient_lighting.green = (myNodeInfo.my_node_num & 0x00FF00) >> 8;
     moduleConfig.ambient_lighting.blue = myNodeInfo.my_node_num & 0x0000FF;
+#endif
 
 #if !MESHTASTIC_EXCLUDE_BEACON
     moduleConfig.has_mesh_beacon = true;
